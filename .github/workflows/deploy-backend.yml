@@ -75,37 +75,37 @@ PORT=8000
 CORS_ORIGINS=http://localhost:5173
 
 ENVV
-fi
-
-        # Build image
-        sudo docker build --pull -t "$APP_NAME:$TAG" -t "$APP_NAME:latest" .
-
-        # Restart container
-        if sudo docker ps -a --format '{{.Names}}' | grep -q "^${APP_NAME}$"; then
-          sudo docker stop "$APP_NAME" || true
-          sudo docker rm "$APP_NAME" || true
-        fi
-
-        sudo docker run -d \
-          --name "$APP_NAME" \
-          --restart unless-stopped \
-          --env-file "$APP_DIR/.env" \
-          -p "${APP_PORT}:8000" \
-          "$APP_NAME:$TAG"
-
-        # Health check
-        for i in {1..10}; do
-          if curl -fsS "http://127.0.0.1:${APP_PORT}/healthz" >/dev/null; then
-            echo "[ok] backend up"
-            exit 0
           fi
-          echo "[wait] retry $i..."
-          sleep 2
-        done
 
-        echo "[fail] health check failed"
-        sudo docker logs --tail=200 "$APP_NAME" || true
-        exit 1
+          # Build image
+          sudo docker build --pull -t "$APP_NAME:$TAG" -t "$APP_NAME:latest" .
+
+          # Restart container
+          if sudo docker ps -a --format '{{.Names}}' | grep -q "^${APP_NAME}$"; then
+            sudo docker stop "$APP_NAME" || true
+            sudo docker rm "$APP_NAME" || true
+          fi
+
+          sudo docker run -d \
+            --name "$APP_NAME" \
+            --restart unless-stopped \
+            --env-file "$APP_DIR/.env" \
+            -p "${APP_PORT}:8000" \
+            "$APP_NAME:$TAG"
+
+          # Health check
+          for i in {1..10}; do
+            if curl -fsS "http://127.0.0.1:${APP_PORT}/healthz" >/dev/null; then
+              echo "[ok] backend up"
+              exit 0
+            fi
+            echo "[wait] retry $i..."
+            sleep 2
+          done
+
+          echo "[fail] health check failed"
+          sudo docker logs --tail=200 "$APP_NAME" || true
+          exit 1
         EOSH
       env:
         APP_DIR: ${{ env.APP_DIR }}
