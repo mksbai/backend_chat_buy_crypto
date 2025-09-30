@@ -37,10 +37,10 @@ jobs:
         id: rel
         run: echo "tag=${GITHUB_SHA::7}-$(date +'%Y%m%d%H%M%S')" >> "$GITHUB_OUTPUT"
 
-      - name: Ensure app dir exists
+      - name: Ensure app dir exists & ownership
         run: |
-          ssh -p "${SSH_PORT:-22}" "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}" \
-            "mkdir -p '${{ env.APP_DIR }}'"
+         ssh -p "${SSH_PORT:-22}" "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}" \
+         "sudo mkdir -p '${{ env.APP_DIR }}' && sudo chown -R \$(whoami):\$(whoami) '${{ env.APP_DIR }}'"
 
       - name: Sync source to server
         run: |
