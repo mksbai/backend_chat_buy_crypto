@@ -1,6 +1,7 @@
 # ChatPage Backend
 
-A minimal FastAPI backend that powers the ChatPage frontend by streaming a placeholder response. The service is ready for local development with Vite as well as containerized deployments.
+A minimal FastAPI backend that powers the ChatPage frontend by streaming a placeholder response. The service is ready for local
+development with Vite as well as containerized deployments.
 
 ## Features
 
@@ -86,7 +87,58 @@ docker build -t chat-backend .
 docker run --rm -p 8000:8000 chat-backend
 ```
 
-The container runs as a non-root user and exposes port 8000.
+The container exposes port 8000 and runs the Uvicorn server defined in `app.py`.
+
+## Continuous Deployment to AWS EC2
+
+A GitHub Actions workflow (`.github/workflows/deploy-backend.yml`) deploys the backend to an Ubuntu-based EC2 host via Docker over SSH whenever `main` is updated or the workflow is manually dispatched. Configure the following repository secrets before the first deploy:
+
+- `SSH_PRIVATE_KEY`
+- `SERVER_IP`
+- `SERVER_USER`
+- `SSH_PORT` (optional, defaults to 22)
+
+### First-time EC2 setup
+
+SSH into the instance and prepare it for deployments:
+
+```bash
+# Install Docker
+sudo apt-get update -y
+sudo apt-get install -y docker.io
+sudo systemctl enable --now docker
+
+# Create application directory and environment file
+sudo mkdir -p /srv/chat-backend
+sudo chown "$(whoami)" /srv/chat-backend
+cat <<'ENVV' > /srv/chat-backend/.env
+PORT=8000
+CORS_ORIGINS=http://localhost:5173
+ENVV
+```
+
+Adjust the `.env` file to match your production configuration if needed.
+
+### Deployment verification
+
+After each deploy the workflow automatically rebuilds the Docker image, restarts the `chat-backend` container, and runs a health check against `http://127.0.0.1:8000/healthz`. From outside the server you can verify the deployment via the Nginx proxy:
+
+```bash
+curl http://<SERVER_DOMAIN>/healthz
+curl -N -X POST http://<SERVER_DOMAIN>/api/chat -H "Content-Type: application/json" -d '{"message":"hello"}'
+```
+
+### Rollback
+
+If you need to roll back to a previous image tag, run:
+
+```bash
+sudo docker stop chat-backend && sudo docker rm chat-backend
+sudo docker run -d --name chat-backend --restart unless-stopped \
+  --env-file /srv/chat-backend/.env -p 8000:8000 chat-backend:<OLD_TAG>
+```
+
+Replace `<OLD_TAG>` with the image tag output by the workflow logs.
 
 ## Curl Example
 
