@@ -13,7 +13,7 @@ env:
   APP_NAME: chat-backend
   APP_DIR: /srv/chat-backend
   APP_PORT: "8000"
-  # Optional; if not set, shell defaults to 22 via ${SSH_PORT:-22}
+  # Optional; if not set as a secret, we default to 22 in shell with ${SSH_PORT:-22}
   SSH_PORT: ${{ secrets.SSH_PORT }}
 
 jobs:
@@ -71,11 +71,8 @@ jobs:
           # Ensure env file exists
           if [ ! -f ".env" ]; then
             cat > .env <<'ENVV'
-
-
 PORT=8000
 CORS_ORIGINS=http://localhost:5173
-
 ENVV
           fi
 
@@ -108,9 +105,9 @@ ENVV
           echo "[fail] health check failed"
           sudo docker logs --tail=200 "$APP_NAME" || true
           exit 1
-        EOSH
-      env:
-        APP_DIR: ${{ env.APP_DIR }}
-        APP_NAME: ${{ env.APP_NAME }}
-        APP_PORT: ${{ env.APP_PORT }}
-        TAG: ${{ steps.rel.outputs.tag }}
+EOSH
+        env:
+          APP_DIR: ${{ env.APP_DIR }}
+          APP_NAME: ${{ env.APP_NAME }}
+          APP_PORT: ${{ env.APP_PORT }}
+          TAG: ${{ steps.rel.outputs.tag }}
