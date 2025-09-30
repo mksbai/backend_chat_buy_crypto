@@ -13,6 +13,8 @@ env:
   APP_NAME: chat-backend
   APP_DIR: /srv/chat-backend
   APP_PORT: "8000"
+  # Optional; if not set, shell defaults to 22 via ${SSH_PORT:-22}
+  SSH_PORT: ${{ secrets.SSH_PORT }}
 
 jobs:
   deploy:
@@ -30,27 +32,27 @@ jobs:
       - name: Trust server host key
         run: |
           mkdir -p ~/.ssh
-          ssh-keyscan -p "${{ secrets.SSH_PORT || '22' }}" -H "${{ secrets.SERVER_IP }}" >> ~/.ssh/known_hosts
+          ssh-keyscan -p "${SSH_PORT:-22}" -H "${{ secrets.SERVER_IP }}" >> ~/.ssh/known_hosts
 
       - name: Compute release tag
         id: rel
-        run: echo "tag=${GITHUB_SHA::7}-$(date +'%Y%m%d%H%M%S')" >> $GITHUB_OUTPUT
+        run: echo "tag=${GITHUB_SHA::7}-$(date +'%Y%m%d%H%M%S')" >> "$GITHUB_OUTPUT"
 
       - name: Ensure app dir exists
         run: |
-          ssh -p "${{ secrets.SSH_PORT || '22' }}" "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}" \
+          ssh -p "${SSH_PORT:-22}" "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}" \
             "mkdir -p '${{ env.APP_DIR }}'"
 
       - name: Sync source to server
         run: |
           rsync -az --delete \
             --exclude '.git' --exclude '.github' --exclude 'node_modules' --exclude '.venv' \
-            -e "ssh -p ${{ secrets.SSH_PORT || '22' }}" \
+            -e "ssh -p ${SSH_PORT:-22}" \
             ./ "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}:${{ env.APP_DIR }}/"
 
       - name: Build & restart container on EC2
         run: |
-          ssh -p "${{ secrets.SSH_PORT || '22' }}" "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}" bash -s <<'EOSH'
+          ssh -p "${SSH_PORT:-22}" "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}" bash -s <<'EOSH'
           set -euo pipefail
           APP_DIR="${APP_DIR}"
           APP_NAME="${APP_NAME}"
