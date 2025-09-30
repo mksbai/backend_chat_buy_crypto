@@ -13,7 +13,6 @@ env:
   APP_NAME: chat-backend
   APP_DIR: /srv/chat-backend
   APP_PORT: "8000"
-  # optional: set as secret; defaults to 22 in shell
   SSH_PORT: ${{ secrets.SSH_PORT }}
 
 jobs:
@@ -50,7 +49,6 @@ jobs:
             -e "ssh -p ${SSH_PORT:-22}" \
             ./ "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}:${{ env.APP_DIR }}/"
 
-      # NEW: push .env from GitHub secret to server
       - name: Prepare .env from secret (locally)
         run: |
           umask 177
@@ -64,16 +62,15 @@ jobs:
           ssh -p "${SSH_PORT:-22}" "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}" \
             "chmod 600 '${{ env.APP_DIR }}/.env'"
 
-      - name: Build & restart container on EC2
+      - name: Create remote deploy script (locally)
         run: |
-          ssh -p "${SSH_PORT:-22}" "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}" bash -s <<'EOSH'
+          cat > deploy-remote.sh <<'SCRIPT'
           set -euo pipefail
-          APP_DIR="${APP_DIR}"
-          APP_NAME="${APP_NAME}"
-          APP_PORT="${APP_PORT}"
-          TAG="${TAG}"
 
-          # Ensure Docker
+          # Expect env: APP_DIR, APP_NAME, APP_PORT, TAG
+          echo "[deploy] Using APP_DIR=$APP_DIR APP_NAME=$APP_NAME TAG=$TAG"
+
+          # 1) Ensure Docker
           if ! command -v docker >/dev/null 2>&1; then
             sudo apt-get update -y
             sudo apt-get install -y docker.io
@@ -82,10 +79,10 @@ jobs:
 
           cd "$APP_DIR"
 
-          # Build image
+          # 2) Build image
           sudo docker build --pull -t "$APP_NAME:$TAG" -t "$APP_NAME:latest" .
 
-          # Restart container
+          # 3) Restart container
           if sudo docker ps -a --format '{{.Names}}' | grep -q "^${APP_NAME}$"; then
             sudo docker stop "$APP_NAME" || true
             sudo docker rm "$APP_NAME" || true
@@ -98,7 +95,7 @@ jobs:
             -p "${APP_PORT}:8000" \
             "$APP_NAME:$TAG"
 
-          # Health check
+          # 4) Health check
           for i in {1..10}; do
             if curl -fsS "http://127.0.0.1:${APP_PORT}/healthz" >/dev/null; then
               echo "[ok] backend up"
@@ -111,9 +108,13 @@ jobs:
           echo "[fail] health check failed"
           sudo docker logs --tail=200 "$APP_NAME" || true
           exit 1
-EOSH
-        env:
-          APP_DIR: ${{ env.APP_DIR }}
-          APP_NAME: ${{ env.APP_NAME }}
-          APP_PORT: ${{ env.APP_PORT }}
-          TAG: ${{ steps.rel.outputs.tag }}
+          SCRIPT
+
+      - name: Upload and run remote deploy script
+        run: |
+          scp -P "${SSH_PORT:-22}" ./deploy-remote.sh \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}:/tmp/deploy-remote.sh"
+          ssh -p "${SSH_PORT:-22}" "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}" \
+            "chmod +x /tmp/deploy-remote.sh"
+          ssh -p "${SSH_PORT:-22}" "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}" \
+            "APP_DIR='${{ env.APP_DIR }}' APP_NAME='${{ env.APP_NAME }}' APP_PORT='${{ env.APP_PORT }}' TAG='${{ steps.rel.outputs.tag }}' /tmp/deploy-remote.sh"
