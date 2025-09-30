@@ -13,6 +13,7 @@ env:
   APP_NAME: chat-backend
   APP_DIR: /srv/chat-backend
   APP_PORT: "8000"
+  BACKEND_DIR: backend    # <<< set to '.' if your Dockerfile is at repo root
   SSH_PORT: ${{ secrets.SSH_PORT }}
 
 jobs:
@@ -39,28 +40,18 @@ jobs:
 
       - name: Ensure app dir exists & ownership
         run: |
-         ssh -p "${SSH_PORT:-22}" "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}" \
-         "sudo mkdir -p '${{ env.APP_DIR }}' && sudo chown -R \$(whoami):\$(whoami) '${{ env.APP_DIR }}'"
+          ssh -p "${SSH_PORT:-22}" "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}" \
+            "sudo mkdir -p '${{ env.APP_DIR }}' && sudo chown -R \$(whoami):\$(whoami) '${{ env.APP_DIR }}'"
 
-      - name: Sync source to server
+      - name: Sync backend source to server
         run: |
           rsync -az --delete \
             --exclude '.git' --exclude '.github' --exclude 'node_modules' --exclude '.venv' \
             -e "ssh -p ${SSH_PORT:-22}" \
-            ./ "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}:${{ env.APP_DIR }}/"
+            "./${{ env.BACKEND_DIR }}/" \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}:${{ env.APP_DIR }}/"
 
-      - name: Prepare .env from secret (locally)
-        run: |
-          umask 177
-          printf '%s' "${{ secrets.BACKEND_ENV_FILE }}" > .deploy.env
-
-      - name: Upload .env to server
-        run: |
-          scp -P "${SSH_PORT:-22}" .deploy.env \
-            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}:${{ env.APP_DIR }}/.env"
-          rm -f .deploy.env
-          ssh -p "${SSH_PORT:-22}" "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}" \
-            "chmod 600 '${{ env.APP_DIR }}/.env'"
+      # If you're using a .env secret, keep your existing steps that scp it to ${APP_DIR}/.env here.
 
       - name: Create remote deploy script (locally)
         run: |
@@ -68,7 +59,7 @@ jobs:
           set -euo pipefail
 
           # Expect env: APP_DIR, APP_NAME, APP_PORT, TAG
-          echo "[deploy] Using APP_DIR=$APP_DIR APP_NAME=$APP_NAME TAG=$TAG"
+          echo "[deploy] APP_DIR=$APP_DIR APP_NAME=$APP_NAME TAG=$TAG"
 
           # 1) Ensure Docker
           if ! command -v docker >/dev/null 2>&1; then
@@ -79,10 +70,21 @@ jobs:
 
           cd "$APP_DIR"
 
-          # 2) Build image
-          sudo docker build --pull -t "$APP_NAME:$TAG" -t "$APP_NAME:latest" .
+          # 2) Sanity check: Dockerfile present?
+          if [ ! -f "Dockerfile" ]; then
+            echo "[error] Dockerfile not found at $APP_DIR/Dockerfile"
+            echo "Contents of $APP_DIR:"
+            ls -la
+            exit 1
+          fi
+          if [ ! -f "requirements.txt" ]; then
+            echo "[warn] requirements.txt not found at $APP_DIR/requirements.txt"
+          fi
 
-          # 3) Restart container
+          # 3) Build image using $APP_DIR as context
+          sudo docker build --pull -t "$APP_NAME:$TAG" -t "$APP_NAME:latest" "$APP_DIR"
+
+          # 4) Restart container
           if sudo docker ps -a --format '{{.Names}}' | grep -q "^${APP_NAME}$"; then
             sudo docker stop "$APP_NAME" || true
             sudo docker rm "$APP_NAME" || true
@@ -95,7 +97,7 @@ jobs:
             -p "${APP_PORT}:8000" \
             "$APP_NAME:$TAG"
 
-          # 4) Health check
+          # 5) Health check
           for i in {1..10}; do
             if curl -fsS "http://127.0.0.1:${APP_PORT}/healthz" >/dev/null; then
               echo "[ok] backend up"
