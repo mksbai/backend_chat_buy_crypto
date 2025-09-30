@@ -13,7 +13,7 @@ env:
   APP_NAME: chat-backend
   APP_DIR: /srv/chat-backend
   APP_PORT: "8000"
-  # Optional; if not set as a secret, we default to 22 in shell with ${SSH_PORT:-22}
+  # optional: set as secret; defaults to 22 in shell
   SSH_PORT: ${{ secrets.SSH_PORT }}
 
 jobs:
@@ -50,6 +50,20 @@ jobs:
             -e "ssh -p ${SSH_PORT:-22}" \
             ./ "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}:${{ env.APP_DIR }}/"
 
+      # NEW: push .env from GitHub secret to server
+      - name: Prepare .env from secret (locally)
+        run: |
+          umask 177
+          printf '%s' "${{ secrets.BACKEND_ENV_FILE }}" > .deploy.env
+
+      - name: Upload .env to server
+        run: |
+          scp -P "${SSH_PORT:-22}" .deploy.env \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}:${{ env.APP_DIR }}/.env"
+          rm -f .deploy.env
+          ssh -p "${SSH_PORT:-22}" "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}" \
+            "chmod 600 '${{ env.APP_DIR }}/.env'"
+
       - name: Build & restart container on EC2
         run: |
           ssh -p "${SSH_PORT:-22}" "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}" bash -s <<'EOSH'
@@ -67,14 +81,6 @@ jobs:
           fi
 
           cd "$APP_DIR"
-
-          # Ensure env file exists
-          if [ ! -f ".env" ]; then
-            cat > .env <<'ENVV'
-PORT=8000
-CORS_ORIGINS=http://localhost:5173
-ENVV
-          fi
 
           # Build image
           sudo docker build --pull -t "$APP_NAME:$TAG" -t "$APP_NAME:latest" .
