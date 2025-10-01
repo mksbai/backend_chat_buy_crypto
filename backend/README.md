@@ -7,7 +7,7 @@ development with Vite as well as containerized deployments.
 
 - `POST /api/chat` streams plain-text placeholder responses using chunked transfer encoding.
 - `GET /healthz` health check for readiness probes.
-- Strict CORS allowing `http://localhost:5173` during development.
+- Strict CORS allowing the production domains (`https://mksmart.info`, `https://www.mksmart.info`) as well as `http://localhost:5173` during development.
 - Configurable chunk delay, CORS origins, and port via environment variables.
 - Request logging with a generated `X-Request-Id` header.
 - Optional request size guard (10KB message limit).
@@ -58,7 +58,7 @@ For production, serve the backend behind the same origin as the frontend using a
 | Variable | Default | Description |
 | --- | --- | --- |
 | `PORT` | `8000` | Port used by Uvicorn. |
-| `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated allowed origins. |
+| `CORS_ORIGINS` | `http://localhost:5173,https://mksmart.info,https://www.mksmart.info` | Comma-separated allowed origins. |
 | `LOG_LEVEL` | `info` | Logging level. |
 | `DELAY_MS` | `80` | Delay between streamed chunks in milliseconds. |
 | `MAX_MESSAGE_BYTES` | `10240` | Maximum allowed request message size in bytes. |
@@ -113,7 +113,7 @@ sudo mkdir -p /srv/chat-backend
 sudo chown "$(whoami)" /srv/chat-backend
 cat <<'ENVV' > /srv/chat-backend/.env
 PORT=8000
-CORS_ORIGINS=http://localhost:5173
+CORS_ORIGINS=http://localhost:5173,https://mksmart.info,https://www.mksmart.info
 ENVV
 ```
 
