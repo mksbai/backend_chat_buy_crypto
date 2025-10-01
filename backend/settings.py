@@ -38,9 +38,17 @@ class Settings:
 
 @lru_cache
 def get_settings() -> Settings:
+    default_cors_origins = ",".join(
+        (
+            "http://localhost:5173",
+            "https://mksmart.info",
+            "https://www.mksmart.info",
+        )
+    )
+
     return Settings(
         port=_env_int("PORT", 8000),
-        cors_origins=_env_str("CORS_ORIGINS", "http://localhost:5173"),
+        cors_origins=_env_str("CORS_ORIGINS", default_cors_origins),
         log_level=_env_str("LOG_LEVEL", "info"),
         delay_ms=_env_int("DELAY_MS", 80),
         max_message_bytes=_env_int("MAX_MESSAGE_BYTES", 10_240),

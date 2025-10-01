@@ -10,6 +10,11 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 from app import app, PLACEHOLDER_TEXT  # noqa: E402  pylint: disable=wrong-import-position
 
 
+@pytest.fixture
+def anyio_backend():
+    return "asyncio"
+
+
 @pytest.mark.anyio
 async def test_healthz():
     async with LifespanManager(app):
