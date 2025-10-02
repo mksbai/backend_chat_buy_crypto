@@ -8,12 +8,16 @@ from json import JSONDecodeError
 from typing import AsyncGenerator, Iterable
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from settings import settings
 
+from core.anti_replay import AntiReplayMiddleware
+from core.csrf import ensure_csrf_cookie_from_request, require_csrf
+from core.rate_limit import RateLimitMiddleware
+from core.sessions import SessionMiddleware, register_session_events
 
 logger = logging.getLogger("chat-backend")
 logging.basicConfig(level=settings.log_level.upper())
@@ -35,6 +39,7 @@ def message_too_large(message: str) -> bool:
 
 
 app = FastAPI()
+register_session_events(app)
 
 app.add_middleware(
     CORSMiddleware,
@@ -42,6 +47,10 @@ app.add_middleware(
     allow_methods=["POST", "OPTIONS"],
     allow_headers=["Content-Type"],
 )
+
+app.add_middleware(SessionMiddleware)
+app.add_middleware(AntiReplayMiddleware)
+app.add_middleware(RateLimitMiddleware)
 
 
 @app.middleware("http")
@@ -75,6 +84,13 @@ async def add_request_logging(request: Request, call_next):  # type: ignore[over
     return response
 
 
+@app.middleware("http")
+async def ensure_csrf_cookie_middleware(request: Request, call_next):  # type: ignore[override]
+    response = await call_next(request)
+    ensure_csrf_cookie_from_request(request, response)
+    return response
+
+
 async def stream_placeholder(delay: float) -> AsyncGenerator[str, None]:
     try:
         for chunk in chunk_text(PLACEHOLDER_TEXT, CHUNK_SIZE):
@@ -89,7 +105,7 @@ async def healthz():
     return {"status": "ok"}
 
 
-@app.post("/api/chat")
+@app.post("/api/chat", dependencies=[Depends(require_csrf)])
 async def chat_endpoint(request: Request):
     try:
         payload = await request.body()
