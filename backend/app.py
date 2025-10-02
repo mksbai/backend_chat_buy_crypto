@@ -8,14 +8,14 @@ from json import JSONDecodeError
 from typing import AsyncGenerator, Iterable
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from settings import settings
 
 from core.anti_replay import AntiReplayMiddleware
-from core.csrf import ensure_csrf_cookie_from_request, require_csrf
+from core.csrf import ensure_csrf_cookie, ensure_csrf_cookie_from_request, require_csrf
 from core.rate_limit import RateLimitMiddleware
 from core.sessions import SessionMiddleware, register_session_events
 
@@ -41,6 +41,9 @@ def message_too_large(message: str) -> bool:
 app = FastAPI()
 register_session_events(app)
 
+app.add_middleware(RateLimitMiddleware)
+app.add_middleware(SessionMiddleware)
+app.add_middleware(AntiReplayMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
@@ -48,10 +51,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-app.add_middleware(SessionMiddleware)
-app.add_middleware(AntiReplayMiddleware)
-app.add_middleware(RateLimitMiddleware)
 
 
 @app.middleware("http")
@@ -104,6 +103,12 @@ async def stream_placeholder(delay: float) -> AsyncGenerator[str, None]:
 @app.get("/healthz")
 async def healthz():
     return {"status": "ok"}
+
+
+@app.get("/csrf")
+async def csrf_seed(response: Response):
+    token = ensure_csrf_cookie(response)
+    return {"csrf": token}
 
 
 @app.get("/me")
