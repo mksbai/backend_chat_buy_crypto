@@ -105,6 +105,16 @@ async def healthz():
     return {"status": "ok"}
 
 
+@app.get("/me")
+async def me(request: Request):
+    session = getattr(request.state, "session", {})
+    if not isinstance(session, dict):
+        session = {}
+
+    user_id = session.get("user_id")
+    return {"anonymous": user_id is None, "user_id": user_id}
+
+
 @app.post("/api/chat", dependencies=[Depends(require_csrf)])
 async def chat_endpoint(request: Request):
     try:
