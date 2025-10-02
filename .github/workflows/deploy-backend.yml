@@ -15,6 +15,7 @@ env:
   APP_PORT: "8000"
   BACKEND_DIR: "backend"
   SSH_PORT: ${{ secrets.SSH_PORT }}
+  SSH_STRICT_HOST_KEY_CHECKING: "yes"
 
 jobs:
   deploy:
@@ -29,10 +30,78 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      - name: Trust server host key
+      - name: Validate deploy secrets
+        env:
+          SERVER_IP: ${{ secrets.SERVER_IP }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          BACKEND_ENV_FILE: ${{ secrets.BACKEND_ENV_FILE }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
         run: |
+          set -euo pipefail
+          missing=()
+          for var in SERVER_IP SERVER_USER SSH_PRIVATE_KEY BACKEND_ENV_FILE; do
+            if [ -z "${!var:-}" ]; then
+              missing+=("$var")
+            fi
+          done
+          if [ "${#missing[@]}" -ne 0 ]; then
+            printf '::error::Missing required secrets: %s\n' "${missing[*]}"
+            exit 1
+          fi
+          if [ -n "${SSH_PORT:-}" ]; then
+            if ! [[ "${SSH_PORT}" =~ ^[0-9]+$ ]]; then
+              echo "::error::SSH_PORT must be numeric when provided."
+              exit 1
+            fi
+          fi
+          echo "Required secrets are present."
+
+      - name: Check SSH TCP connectivity
+        env:
+          SERVER_IP: ${{ secrets.SERVER_IP }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+        run: |
+          set -euo pipefail
+          port="${SSH_PORT:-22}"
+          echo "Verifying TCP connectivity to ${SERVER_IP}:${port}"
+          if ! timeout 10 bash -c "</dev/tcp/${SERVER_IP}/${port}" >/dev/null 2>&1; then
+            echo "::error::Unable to establish TCP connection to ${SERVER_IP}:${port}. Check firewall or networking."
+            exit 1
+          fi
+          echo "TCP connectivity confirmed."
+
+      - name: Trust server host key
+        env:
+          SERVER_IP: ${{ secrets.SERVER_IP }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          ALLOW_INSECURE_HOST_KEY: ${{ secrets.ALLOW_INSECURE_HOST_KEY }}
+        run: |
+          set -euo pipefail
           mkdir -p ~/.ssh
-          ssh-keyscan -p "${SSH_PORT:-22}" -H "${{ secrets.SERVER_IP }}" >> ~/.ssh/known_hosts
+          port="${SSH_PORT:-22}"
+          tmp="$(mktemp)"
+          log="$(mktemp)"
+          echo "Fetching SSH host key from ${SERVER_IP}:${port}"
+          if timeout 15 ssh-keyscan -T 5 -p "$port" -H "$SERVER_IP" >"$tmp" 2>"$log"; then
+            cat "$tmp" >> ~/.ssh/known_hosts
+            echo "SSH host key recorded."
+            echo "SSH_STRICT_HOST_KEY_CHECKING=yes" >> "$GITHUB_ENV"
+          else
+            scan_msg="$(cat "$log")"
+            if [ -n "$scan_msg" ]; then
+              echo "::warning::ssh-keyscan output: $scan_msg"
+            fi
+            if [ -n "${ALLOW_INSECURE_HOST_KEY:-}" ]; then
+              echo "::warning::Falling back to StrictHostKeyChecking=no as ALLOW_INSECURE_HOST_KEY secret is set."
+              echo "SSH_STRICT_HOST_KEY_CHECKING=no" >> "$GITHUB_ENV"
+            else
+              echo "::error::Failed to fetch SSH host key. Ensure the server is reachable or configure ALLOW_INSECURE_HOST_KEY for first deploys."
+              rm -f "$tmp" "$log"
+              exit 1
+            fi
+          fi
+          rm -f "$tmp" "$log"
 
       - name: Compute release tag
         id: rel
@@ -40,7 +109,7 @@ jobs:
 
       - name: Ensure app dir exists & ownership
         run: |
-          ssh -p "${SSH_PORT:-22}" "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}" \
+          ssh -o StrictHostKeyChecking="${SSH_STRICT_HOST_KEY_CHECKING}" -p "${SSH_PORT:-22}" "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}" \
             "sudo mkdir -p '${{ env.APP_DIR }}' && sudo chown -R \$(whoami):\$(whoami) '${{ env.APP_DIR }}'"
 
       - name: Sync backend source to server
@@ -50,7 +119,7 @@ jobs:
             --exclude '.github' \
             --exclude 'node_modules' \
             --exclude '.venv' \
-            -e "ssh -p ${SSH_PORT:-22}" \
+            -e "ssh -o StrictHostKeyChecking=${SSH_STRICT_HOST_KEY_CHECKING} -p ${SSH_PORT:-22}" \
             "./${{ env.BACKEND_DIR }}/" \
             "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}:${{ env.APP_DIR }}/"
 
@@ -61,10 +130,10 @@ jobs:
 
       - name: Upload .env to server
         run: |
-          scp -P "${SSH_PORT:-22}" ./.deploy.env \
+          scp -o StrictHostKeyChecking="${SSH_STRICT_HOST_KEY_CHECKING}" -P "${SSH_PORT:-22}" ./.deploy.env \
             "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}:${{ env.APP_DIR }}/.env"
           rm -f ./.deploy.env
-          ssh -p "${SSH_PORT:-22}" "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}" \
+          ssh -o StrictHostKeyChecking="${SSH_STRICT_HOST_KEY_CHECKING}" -p "${SSH_PORT:-22}" "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}" \
             "chmod 600 '${{ env.APP_DIR }}/.env'"
 
       - name: Create remote deploy script (locally)
@@ -128,9 +197,9 @@ jobs:
 
       - name: Upload and run remote deploy script
         run: |
-          scp -P "${SSH_PORT:-22}" ./deploy-remote.sh \
+          scp -o StrictHostKeyChecking="${SSH_STRICT_HOST_KEY_CHECKING}" -P "${SSH_PORT:-22}" ./deploy-remote.sh \
             "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}:/tmp/deploy-remote.sh"
-          ssh -p "${SSH_PORT:-22}" "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}" \
+          ssh -o StrictHostKeyChecking="${SSH_STRICT_HOST_KEY_CHECKING}" -p "${SSH_PORT:-22}" "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}" \
             "chmod +x /tmp/deploy-remote.sh"
-          ssh -p "${SSH_PORT:-22}" "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}" \
+          ssh -o StrictHostKeyChecking="${SSH_STRICT_HOST_KEY_CHECKING}" -p "${SSH_PORT:-22}" "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}" \
             "APP_DIR='${{ env.APP_DIR }}' APP_NAME='${{ env.APP_NAME }}' APP_PORT='${{ env.APP_PORT }}' TAG='${{ steps.rel.outputs.tag }}' /tmp/deploy-remote.sh"
