@@ -165,6 +165,17 @@ jobs:
           fi
 
           # 3) Build image using $APP_DIR as context
+          # Enable BuildKit for faster, leaner builds
+          export DOCKER_BUILDKIT=1
+
+          # Clean up space before building
+          sudo docker system prune -af || true
+          sudo docker builder prune -af || true
+
+          # (Optional) sanity checks
+          df -h
+          free -h
+
           sudo docker build --pull -t "$APP_NAME:$TAG" -t "$APP_NAME:latest" "$APP_DIR"
 
           # 4) Restart container
