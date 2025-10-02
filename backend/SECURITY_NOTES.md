@@ -23,6 +23,8 @@ This ensures rate limiting and replay checks run before sessions are materialise
 ## CSRF handling
 - A double-submit cookie named `csrftoken` is issued automatically when missing.
 - Mutable routes require both the cookie and `X-CSRF-Token` header with matching values.
+
+- Clients can obtain the cookie (and an anonymous session) by performing any safe request such as `GET /healthz` or `OPTIONS /api/chat` before issuing mutating calls.
 - Helper `ensure_csrf_cookie(...)` can be called manually if future private routes need to refresh or rotate the token.
 
 ## Session lifecycle
