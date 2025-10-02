@@ -14,6 +14,7 @@ LOGGER = logging.getLogger("chat-backend.csrf")
 
 CSRFTOKEN_COOKIE_NAME = "csrftoken"
 MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+CSRF_COOKIE_MAX_AGE = 7 * 24 * 3600
 
 
 def _cookie_secure() -> bool:
@@ -35,6 +36,7 @@ def ensure_csrf_cookie(response: Response, token: Optional[str] = None) -> str:
         secure=_cookie_secure(),
         samesite="lax",
         path="/",
+        max_age=CSRF_COOKIE_MAX_AGE,
     )
     return value
 
@@ -72,8 +74,17 @@ async def require_csrf(request: Request) -> None:
 
 
 def ensure_csrf_cookie_from_request(request: Request, response: Response) -> None:
-    if CSRFTOKEN_COOKIE_NAME not in request.cookies:
-        ensure_csrf_cookie(response)
+    if CSRFTOKEN_COOKIE_NAME in request.cookies:
+        return
+
+    set_cookie_headers = response.headers.getlist("set-cookie")
+    if any(
+        header.startswith(f"{CSRFTOKEN_COOKIE_NAME}=")
+        for header in set_cookie_headers
+    ):
+        return
+
+    ensure_csrf_cookie(response)
 
 
 __all__ = [
